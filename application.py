@@ -27,27 +27,6 @@ import time
 app = Flask(__name__)
 
 
-CONFIG = json.load(open("/home/config.json", "r"))
-
-SUBSCRIPTION_KEY = CONFIG["azure"]["subscription_key"]
-ENDPOINT = CONFIG["azure"]["endpoint"]
-CV_CLIENT = ComputerVisionClient(
-    ENDPOINT, CognitiveServicesCredentials(SUBSCRIPTION_KEY)
-)
-
-FACE_KEY = CONFIG["azure"]["face_key"]
-FACE_END = CONFIG["azure"]["face_end"]
-FACE_CLIENT = FaceClient(FACE_END, CognitiveServicesCredentials(FACE_KEY))
-PERSON_GROUP_ID = "tibame"
-
-LINE_SECRET = CONFIG["line"]["line_secret"]
-LINE_TOKEN = CONFIG["line"]["line_token"]
-LINE_BOT = LineBotApi(LINE_TOKEN)
-HANDLER = WebhookHandler(LINE_SECRET)
-
-
-IMGUR_CONFIG = CONFIG["imgur"]
-IMGUR_CLIENT = Imgur(config=IMGUR_CONFIG)
 
 
 @app.route("/")
