@@ -1,6 +1,7 @@
 """
 Object detection and image description on LINE bot
 """
+import re
 import os
 import json
 import requests
@@ -17,6 +18,8 @@ from imgur_python import Imgur
 from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
+
+
 
 try:
     with open('/home/config.json', 'r') as f:
@@ -57,6 +60,13 @@ HANDLER = WebhookHandler(LINE_SECRET)
 IMGUR_CLIENT = Imgur(config=IMGUR_CONFIG)
 FACE_CLIENT = FaceClient(FACE_END, CognitiveServicesCredentials(FACE_KEY))
 
+
+@app.route("/")
+def hello():
+    "hello world"
+    return "Hello World!!!!!"
+
+
 def azure_describe(url):
     """
     Output azure image description result
@@ -65,7 +75,8 @@ def azure_describe(url):
     output = ""
     for caption in description_results.captions:
         output += "'{}' with confidence {:.2f}% \n".format(
-            caption.text, caption.confidence * 100)
+            caption.text, caption.confidence * 100
+        )
     return output
 
 
@@ -98,92 +109,68 @@ def azure_ocr(url):
     return text[0].replace(".", "-") if len(text) > 0 else ""
 
 
-class AzureImageOutput():
-    def __init__(self, url, filename):
-        self.url = url
-        self.filename = filename
-        self.img = Image.open(filename)
-        self.draw = ImageDraw.Draw(self.img)
-        self.fnt = ImageFont.truetype(
-            "static/TaipeiSansTCBeta-Regular.ttf",
-            size=int(5e-2 * self.img.size[1]))
-
-    def azure_object_detection(self):
-        object_detection = CV_CLIENT.detect_objects(self.url)
-        if len(object_detection.objects) > 0:
-            for obj in object_detection.objects:
-                left = obj.rectangle.x
-                top = obj.rectangle.y
-                right = obj.rectangle.x + obj.rectangle.w
-                bot = obj.rectangle.y + obj.rectangle.h
-                name = obj.object_property
-                confidence = obj.confidence
-                print("{} at location {}, {}, {}, {}".format(
-                    name, left, right, top, bot))
-                self.draw.rectangle(
-                    [left, top, right, bot], outline=(255, 0, 0), width=3)
-                self.draw.text(
-                    [left, abs(top - 12)],
-                    "{} {}".format(name, confidence),
-                    fill=(255, 0, 0),
-                    font=self.fnt)
-
-    def azure_face_detection(self):
-        face_api_url = '{}face/v1.0/detect'.format(FACE_END)
-        headers = {'Ocp-Apim-Subscription-Key': FACE_KEY}
-        params = {
-            'returnFaceId': 'true',
-            'returnFaceLandmarks': 'false',
-            'returnFaceAttributes': 'emotion',
-        }
-        response = requests.post(
-            face_api_url,
-            params=params,
-            headers=headers,
-            json={"url": self.url})
-        if len(response.json()) > 0:
-            for obj in response.json():
-                left = obj['faceRectangle']['left']
-                top = obj['faceRectangle']['top']
-                right = obj['faceRectangle']['left'] + obj['faceRectangle']['width']
-                bot = obj['faceRectangle']['top'] + obj['faceRectangle']['height']
-                emotion = max(
-                    obj["faceAttributes"]['emotion'],
-                    key=obj["faceAttributes"]['emotion'].get)
-                confidence = max(obj["faceAttributes"]['emotion'].values())
-                self.draw.rectangle(
-                    [left, top, right, bot], outline=(255, 0, 0), width=3)
-                self.draw.text(
-                    [left, abs(top - 12)],
-                    "{} {}".format(emotion, confidence),
-                    fill=(255, 0, 0),
-                    font=self.fnt)
-
-    def __call__(self):
-        self.azure_object_detection()
-        self.azure_face_detection()
-        self.img.save(self.filename)
-        image = IMGUR_CLIENT.image_upload(self.filename, 'first', 'first')
-        link = image['response']['data']['link']
-        os.remove(self.filename)
-        return link
+def azure_object_detection(url, filename):
+    img = Image.open(filename)
+    draw = ImageDraw.Draw(img)
+    font_size = int(5e-2 * img.size[1])
+    fnt = ImageFont.truetype("static/TaipeiSansTCBeta-Regular.ttf", size=font_size)
+    object_detection = CV_CLIENT.detect_objects(url)
+    if len(object_detection.objects) > 0:
+        for obj in object_detection.objects:
+            left = obj.rectangle.x
+            top = obj.rectangle.y
+            right = obj.rectangle.x + obj.rectangle.w
+            bot = obj.rectangle.y + obj.rectangle.h
+            name = obj.object_property
+            confidence = obj.confidence
+            print("{} at location {}, {}, {}, {}".format(name, left, right, top, bot))
+            draw.rectangle([left, top, right, bot], outline=(255, 0, 0), width=3)
+            draw.text(
+                [left, top + font_size],
+                "{} {}".format(name, confidence),
+                fill=(255, 0, 0),
+                font=fnt,
+            )
+    img.save(filename)
+    image = IMGUR_CLIENT.image_upload(filename, "", "")
+    link = image["response"]["data"]["link"]
+    os.remove(filename)
+    return link
 
 
-@app.route("/")
-def hello():
-    "hello world"
-    return "Hello World!!!!!"
+def azure_face_recognition(filename):
+    """
+    Azure face recognition
+    """
+    img = open(filename, "r+b")
+    detected_face = FACE_CLIENT.face.detect_with_stream(
+        img, detection_model="detection_01"
+    )
+    if len(detected_face) != 1:
+        return ""
+    results = FACE_CLIENT.face.identify([detected_face[0].face_id], PERSON_GROUP_ID)
+    if len(results) == 0:
+        return "unknown"
+    result = results[0].as_dict()
+    if len(result["candidates"]) == 0:
+        return "unknown"
+    if result["candidates"][0]["confidence"] < 0.5:
+        return "unknown"
+    person = FACE_CLIENT.person_group_person.get(
+        PERSON_GROUP_ID, result["candidates"][0]["person_id"]
+    )
+    return person.name
 
 
-@app.route("/callback", methods=['POST'])
+@app.route("/callback", methods=["POST"])
 def callback():
     """
     LINE bot webhook callback
     """
     # get X-Line-Signature header value
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers["X-Line-Signature"]
+    print(signature)
     body = request.get_data(as_text=True)
-    app.logger.info("Request body: " + body)
     print(body)
     try:
         HANDLER.handle(body, signature)
@@ -192,9 +179,7 @@ def callback():
             "Invalid signature. Please check your channel access token/channel secret."
         )
         abort(400)
-    return 'OK'
-
-
+    return "OK"
 
 
 @HANDLER.add(MessageEvent, message=TextMessage)
@@ -202,12 +187,19 @@ def handle_message(event):
     """
     Reply text message
     """
-    message = TextSendMessage(text=event.message.text)
-    print(event.source.user_id)
-    print(event.source.type)
-    # print(LINE_BOT.get_room_member_ids(room_id))
-    LINE_BOT.reply_message(event.reply_token, message)
-
+    json_file = {"TIBAME": "templates/bubble.json", "HELP": "templates/carousel.json"}
+    try:
+        filename = json_file[event.message.text.upper()]
+        with open(filename, "r") as f_r:
+            bubble = json.load(f_r)
+        f_r.close()
+        LINE_BOT.reply_message(
+            event.reply_token,
+            [FlexSendMessage(alt_text="Information", contents=bubble)],
+        )
+    except:
+        message = TextSendMessage(text=event.message.text)
+        LINE_BOT.reply_message(event.reply_token, message)
 
 
 @HANDLER.add(MessageEvent, message=ImageMessage)
@@ -215,28 +207,38 @@ def handle_content_message(event):
     """
     Reply Image message with results of image description and objection detection
     """
-    if isinstance(event.message, ImageMessage):
-        print(event.message)
-        print(event.source.user_id)
-        print(event.message.id)
-        filename = "{}.jpg".format(event.message.id)
-        message_content = LINE_BOT.get_message_content(event.message.id)
-        with open(filename, 'wb') as f_w:
-            for chunk in message_content.iter_content():
-                f_w.write(chunk)
-        f_w.close()
-        image = IMGUR_CLIENT.image_upload(filename, 'first', 'first')
-        link = image['response']['data']['link']
-        output = azure_describe(link)
-        az_output = AzureImageOutput(link, filename)
-        link = az_output()
-        with open('templates/detect_result.json', 'r') as f_r:
-            bubble = json.load(f_r)
-        f_r.close()
-        bubble['body']['contents'][0]['contents'][0]['contents'][0][
-            'text'] = output
-        bubble['header']['contents'][0]['contents'][0]['contents'][0][
-            'url'] = link
-        LINE_BOT.reply_message(
-            event.reply_token,
-            [FlexSendMessage(alt_text="Report", contents=bubble)])
+    print(event.message)
+    print(event.source.user_id)
+    print(event.message.id)
+    filename = "{}.jpg".format(event.message.id)
+    message_content = LINE_BOT.get_message_content(event.message.id)
+    with open(filename, "wb") as f_w:
+        for chunk in message_content.iter_content():
+            f_w.write(chunk)
+    f_w.close()
+    image = IMGUR_CLIENT.image_upload(filename, "first", "first")
+    link = image["response"]["data"]["link"]
+    name = azure_face_recognition(filename)
+
+    if name != "":
+        now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+        output = "{0}, {1}".format(name, now)
+    else:
+        plate = azure_ocr(link)
+        link_ob = azure_object_detection(link, filename)
+        if len(plate) > 0:
+            output = "License Plate: {}".format(plate)
+        else:
+            output = azure_describe(link)
+        link = link_ob
+
+    with open("templates/detect_result.json", "r") as f_r:
+        bubble = json.load(f_r)
+    f_r.close()
+    bubble["body"]["contents"][0]["contents"][0]["contents"][0]["text"] = output
+    bubble["header"]["contents"][0]["contents"][0]["contents"][0]["url"] = link
+    LINE_BOT.reply_message(
+        event.reply_token, [FlexSendMessage(alt_text="Report", contents=bubble)]
+    )
+
+
