@@ -51,7 +51,7 @@ except FileNotFoundError:
         "refresh_token": os.getenv('IMGUR_REFRESH')
     }
 
-PERSON_GROUP_ID = "liuxh"
+PERSON_GROUP_ID = "liu_ffaaccee"
 
 CV_CLIENT = ComputerVisionClient(
     ENDPOINT, CognitiveServicesCredentials(SUBSCRIPTION_KEY))
