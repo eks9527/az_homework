@@ -16,9 +16,9 @@ from linebot.models import (MessageEvent, TextMessage, TextSendMessage,
                             FlexSendMessage, ImageMessage)
 from imgur_python import Imgur
 from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime
 
 app = Flask(__name__)
-
 
 
 try:
@@ -51,7 +51,7 @@ except FileNotFoundError:
         "refresh_token": os.getenv('IMGUR_REFRESH')
     }
 
-PERSON_GROUP_ID = "liu_ffaaccee"
+
 
 CV_CLIENT = ComputerVisionClient(
     ENDPOINT, CognitiveServicesCredentials(SUBSCRIPTION_KEY))
@@ -59,7 +59,7 @@ LINE_BOT = LineBotApi(LINE_TOKEN)
 HANDLER = WebhookHandler(LINE_SECRET)
 IMGUR_CLIENT = Imgur(config=IMGUR_CONFIG)
 FACE_CLIENT = FaceClient(FACE_END, CognitiveServicesCredentials(FACE_KEY))
-
+PERSON_GROUP_ID = "liu_ffaaccee"
 
 @app.route("/")
 def hello():
